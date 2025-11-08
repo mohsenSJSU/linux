@@ -80,6 +80,64 @@ MODULE_AUTHOR("Qumranet");
 MODULE_DESCRIPTION("KVM support for VMX (Intel VT-x) extensions");
 MODULE_LICENSE("GPL");
 
+/*
+ * CMPE283 Assignment 2: VM Exit Statistics
+ * Author: Mohsen Minai
+ * Date: November 2025
+ */
+#define MAX_EXIT_REASONS 70
+
+static atomic64_t exit_counts[MAX_EXIT_REASONS];
+static atomic64_t total_exits;
+
+/*
+ * CMPE283: Get human-readable name for exit reason
+ * Mohsen Minai - November 2025
+ */
+static const char* get_exit_reason_name(int exit_reason) {
+    switch(exit_reason) {
+        case 0: return "EXCEPTION_NMI";
+        case 1: return "EXTERNAL_INTERRUPT";
+        case 2: return "TRIPLE_FAULT";
+        case 7: return "INTERRUPT_WINDOW";
+        case 10: return "CPUID";
+        case 12: return "HLT";
+        case 16: return "RDTSC";
+        case 18: return "VMCALL";
+        case 28: return "CR_ACCESS";
+        case 30: return "IO_INSTRUCTION";
+        case 31: return "MSR_READ";
+        case 32: return "MSR_WRITE";
+        case 48: return "EPT_VIOLATION";
+        case 49: return "EPT_MISCONFIG";
+        case 54: return "WBINVD";
+        case 55: return "XSETBV";
+        default: return "UNKNOWN";
+    }
+}
+
+/*
+ * CMPE283: Print VM exit statistics every 10,000 exits
+ * Mohsen Minai
+ */
+static void print_exit_stats(void) {
+    int i;
+    u64 count;
+    
+    printk(KERN_INFO "CMPE283-MOHSEN: === VM Exit Statistics (Total: %llu) ===\n", 
+           atomic64_read(&total_exits));
+    
+    for (i = 0; i < MAX_EXIT_REASONS; i++) {
+        count = atomic64_read(&exit_counts[i]);
+        if (count > 0) {
+            printk(KERN_INFO "CMPE283-MOHSEN: Exit %2d (%s): %llu\n", 
+                   i, get_exit_reason_name(i), count);
+        }
+    }
+    
+    printk(KERN_INFO "CMPE283-MOHSEN: =====================================\n");
+}
+
 #ifdef MODULE
 static const struct x86_cpu_id vmx_cpu_id[] = {
 	X86_MATCH_FEATURE(X86_FEATURE_VMX, NULL),
@@ -6637,6 +6695,22 @@ unexpected_vmexit:
 
 int vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 {
+    /* CMPE283 Assignment 2 - Mohsen Minai: Track exit statistics */
+    union vmx_exit_reason exit_reason = vmx_get_exit_reason(vcpu);
+    u32 basic_exit_reason = exit_reason.basic;
+    u64 total;
+    
+    if (basic_exit_reason < MAX_EXIT_REASONS) {
+        atomic64_inc(&exit_counts[basic_exit_reason]);
+    }
+    atomic64_inc(&total_exits);
+    
+    total = atomic64_read(&total_exits);
+    if (total % 10000 == 0) {
+        print_exit_stats();
+    }
+    /* End CMPE283 code */
+    
 	int ret = __vmx_handle_exit(vcpu, exit_fastpath);
 
 	/*
